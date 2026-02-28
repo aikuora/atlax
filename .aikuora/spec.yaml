@@ -1,12 +1,14 @@
 domain: "Atlax SDK"
 description: >
-  Atlax is an open-source TypeScript framework (MIT) for building agent-first
-  operating systems. Specialized intelligent agents accompany users throughout
-  their day, understand their interests and preferences, and deliver dynamically
-  generated interfaces (micro-apps) via declarative AXUI schemas. Atlax handles
-  all orchestration, encrypted local memory, optimal LLM selection, sandboxed
-  execution, UI rendering, audit logging, and marketplace distribution — so the
-  developer only writes domain and business logic.
+  Atlax is an open-source framework (MIT) for building agent-first operating
+  systems. The developer surface is TypeScript; the core engine (Cortex, AXP,
+  Bastion, Vault, Synapse) is implemented in Rust and compiled to WebAssembly.
+  Specialized intelligent agents accompany users throughout their day, understand
+  their interests and preferences, and deliver dynamically generated interfaces
+  (micro-apps) via declarative AXUI schemas. Atlax handles all orchestration,
+  encrypted local memory, optimal LLM selection, sandboxed execution, UI
+  rendering, audit logging, and marketplace distribution — so the developer only
+  writes domain and business logic.
 
 archetype: framework
 
@@ -22,6 +24,7 @@ consumers:
       defineRouter(), defineDashboard(), and CLI commands to define agents and
       deploy applications.
     can:
+      - "Define agents using the functional defineAgent() API (recommended) or the equivalent decorator syntax (@Agent, @Intent)"
       - "Define agents with @Agent decorator and a manifest (name, version, description, permissions)"
       - "Declare intents with @Intent and natural-language pattern lists"
       - "Register hooks that react to system or inter-agent events"
@@ -269,6 +272,7 @@ abstractions:
       - "Circuit breaker: if consecutive_failure_count reaches 3 within failure_window_seconds (default 5 minutes), the agent transitions to DISABLED. consecutive_failure_count resets to 0 on every successful execution."
       - "Reputation score persists at its last value when an agent is disabled. It is NOT reset when the agent is re-enabled."
       - "System reputation warnings (score crossing below 0.5 boundary) are emitted by Cortex using the AXUI notification surface, bypassing the normal agent execution pipeline and requiring no agent permission."
+      - "The sandbox type is derived at execution time from identity.signedBy: if identity.signedBy is populated (agent was installed from the marketplace with a publisher's Ed25519 signature), the agent runs in the WASM sandbox (browser WebAssembly API or native Wasmtime); if identity.signedBy is absent (locally defined developer agent), the agent runs in a Web Worker sandbox (or WASM sandbox when running a production build)."
 
   Intent:
     description: >
@@ -1038,14 +1042,31 @@ abstractions:
 # =============================================================================
 
 extension_points:
+  defineAgent:
+    description: >
+      Primary functional API for defining agents. Pure TypeScript, no experimental
+      dependencies, full type inference via Zod. Recommended over the decorator
+      approach for new projects. Produces the same internal AgentDefinition as the
+      @Agent decorator. Accepts: name, version, description, permissions, triggers,
+      intents, hooks, and guards as plain objects.
+    pre_conditions:
+      - "defineConfig() has been called before any defineAgent() call"
+    post_conditions:
+      - "An AgentDefinition is registered in the internal registry"
+      - "All intents have their embeddings generated for the Intent Router"
+    invariants:
+      - "An agent defined with defineAgent() and one defined with @Agent must be indistinguishable at runtime"
+      - "defineAgent() produces valid AgentDefinition types checked by Zod at registration time"
+
   Agent_decorator:
-    description: "Registers a TypeScript class as an Atlax agent with a manifest."
+    description: "Registers a TypeScript class as an Atlax agent with a manifest. Syntactic sugar over defineAgent(). Both approaches produce identical runtime behavior."
     method_signature: "(config: AgentConfig) -> ClassDecorator"
     pre_conditions:
       - "The class is a valid TypeScript class"
       - "config.name is unique within the application's agent registry"
       - "config.permissions contains only valid Permission strings"
       - "config.version is a valid semantic version"
+      - "defineConfig() has been called before any agent class decorated with @Agent is instantiated or registered (inherited from defineAgent() since @Agent is syntactic sugar)"
     post_conditions:
       - "The class is registered in the Cortex agent registry at startup"
       - "A manifest is generated and signed"
@@ -1327,14 +1348,22 @@ behaviors:
     description: >
       Cortex transitions an ACTIVATED agent to EXECUTING, loads its context and
       memory namespace, and invokes the matched intent handler (or hook/schedule).
-      The agent runs in a sandboxed Web Worker (web) or isolated JS context (mobile).
+      The agent runs in a sandboxed context. In development mode (atlax dev), local
+      agents run in Web Workers — no .wasm compilation required, enabling fast hot
+      reload. In Phase 2+, atlax build compiles TypeScript agent code to agent.wasm
+      via Javy (which embeds QuickJS as the JS interpreter inside the WASM module).
+      On the web platform (browser), the browser executes agent.wasm using the native
+      WebAssembly API — providing linear memory isolation without requiring Wasmtime
+      in the browser. On mobile and desktop (native), the Rust core uses embedded
+      Wasmtime to execute agent.wasm — providing CPU limits, instruction-level
+      isolation, and fine-grained host API control.
       A circuit breaker disables the agent after 3 consecutive failures within 5 minutes.
     trigger: "An agent transitions to ACTIVATED state"
     pre_conditions:
       - "The agent is in ACTIVATED state"
       - "A valid AuthSession exists"
       - "The Vault is unlocked"
-      - "The agent's sandbox (Web Worker or JS isolate) is available"
+      - "The agent's sandbox is available: Web Worker (if identity.signedBy is absent and running in dev mode), or WASM sandbox (browser WebAssembly API if identity.signedBy is present on web; Wasmtime if identity.signedBy is present on native)"
     result:
       - "The intent handler is invoked with the AgentContext and extracted parameters"
       - "Any AXUI schema returned by the handler is passed to Neo for rendering"
@@ -1346,7 +1375,7 @@ behaviors:
     on_failure:
       - "On first or second consecutive failure within the window: consecutive_failure_count is incremented; the agent transitions to IDLE"
       - "On third consecutive failure within failure_window_seconds: consecutive_failure_count reaches 3; the agent transitions to DISABLED (circuit breaker)"
-      - "If execution exceeds 30 seconds: the sandbox kills the worker; this counts as a failure for the circuit breaker"
+      - "If execution exceeds 30 seconds: the sandbox kills the execution (Web Worker terminated in dev mode; browser WebAssembly API terminates the WASM instance on web in Phase 2+; Wasmtime host function terminates the WASM instance on native in Phase 2+); this counts as a failure for the circuit breaker"
       - "An AuditEntry is created with result 'error' for every failure"
       - "The user receives an error notification"
 
@@ -1557,6 +1586,7 @@ behaviors:
       - "A unique Ed25519 key pair is generated for this agent instance"
       - "The agent is registered in Cortex with state IDLE"
       - "All permissions are recorded as 'granted'"
+      - "identity.signedBy is set to the publisher's Ed25519 fingerprint (derived from AgentPackage.publisher_key), enabling Cortex to select the WASM sandbox at execution time"
     side_effects:
       - "Installation and permission approval events are recorded in the audit log"
       - "The agent's reputation metrics are initialized"
@@ -1784,6 +1814,7 @@ invariants:
     - "No agent intent, hook, or schedule fires without a valid AuthSession existing."
     - "microphone.read is a platform-level permission held by the host app — Bastion MUST NOT check it per-agent for voice input."
     - "System reputation warnings MUST be emitted by Cortex using the AXUI notification surface, bypassing the agent execution pipeline — no agent permission is required."
+    - "In Phase 2+, agents installed from the Zion marketplace (those with a populated identity.signedBy from a third-party publisher) MUST run in the WASM sandbox: browser WebAssembly API on web, Wasmtime on native. Cortex derives this from identity.signedBy at execution time — no additional attribute is required."
 
   integrity:
     - "Every audit log entry's previousHash must equal the SHA-256 hash of the immediately preceding entry, except for the first entry in the log (the genesis entry), whose previousHash is the empty string by definition."
@@ -1797,7 +1828,7 @@ invariants:
   states:
     - "An agent's state is always exactly one of: INSTALLED, IDLE, ACTIVATED, EXECUTING, WAITING, DISABLED."
     - "An agent can only transition to EXECUTING from ACTIVATED — never from IDLE, WAITING, or DISABLED directly."
-    - "An agent in EXECUTING state has exactly one active sandbox (Web Worker or JS isolate) running. AXP messages queued for an EXECUTING agent are NOT concurrent executions — they wait until the agent returns to IDLE."
+    - "An agent in EXECUTING state has exactly one active sandbox running (Web Worker in dev mode for agents without identity.signedBy; WASM sandbox (browser WebAssembly API on web, Wasmtime on native) in production builds for agents without identity.signedBy; WASM sandbox (browser WebAssembly API on web, Wasmtime on native) for all agents with identity.signedBy). AXP messages queued for an EXECUTING agent are NOT concurrent executions — they wait until the agent returns to IDLE."
     - "An AuthSession's expires_at is always strictly greater than its created_at."
     - "A Permission's status is always one of: declared, pending_approval, granted, revoked."
     - "Memory's lifecycle state is always one of: locked, unlocked, syncing. 'syncing' is a sub-state of 'unlocked' — the Vault key is available while syncing."
@@ -1950,7 +1981,7 @@ derived_tests:
   - given: "A finance agent is in ACTIVATED state with valid permissions and context"
     when: "The expense tracking intent handler is invoked"
     then:
-      - "The handler executes in a sandboxed Web Worker"
+      - "The handler executes in the agent sandbox (Web Worker for local dev agents without publisher signature; browser WebAssembly API or Wasmtime for marketplace agents with publisher signature)"
       - "An AXUI schema is returned and passed to Neo for rendering"
       - "An AuditEntry is created recording the action, model, tokens, latency, and cost"
       - "The agent transitions to IDLE and consecutive_failure_count resets to 0"
@@ -1958,7 +1989,7 @@ derived_tests:
   - given: "An agent's intent handler runs for 31 seconds without completing"
     when: "The 30-second timeout elapses"
     then:
-      - "The sandbox kills the Web Worker"
+      - "The sandbox kills the execution (Web Worker terminated in dev mode; WebAssembly instance or Wasmtime instance terminated in Phase 2+)"
       - "consecutive_failure_count is incremented"
       - "If this is the third consecutive failure within 5 minutes: the agent transitions to DISABLED"
       - "An AuditEntry is created with result 'error'"
@@ -2283,8 +2314,8 @@ derived_tests:
 metadata:
   version: "1.0.0"
   created: "2026-02-28T00:00:00Z"
-  last_modified: "2026-02-28T00:00:00Z"
-  last_verified: "2026-02-28T12:00:00Z"
+  last_modified: "2026-02-28"
+  last_verified: "2026-02-28T16:00:00Z"
   verification_status: "passed"
 
   quality_attributes:
@@ -2308,9 +2339,15 @@ metadata:
       Zion marketplace features.
 
   technical_constraints:
-    platform: "Web (PWA/SPA via React + Vite) and Mobile (React Native via Expo). Desktop via Tauri is Phase 4."
+    platform: "Web (PWA/SPA via React + Vite) and Mobile (React Native via Expo). Desktop via Tauri is Phase 4. Core engine language: Rust->WASM (Phase 2+). Phase 0-1 is 100% TypeScript with WASM dependencies."
     technology_mandates:
       - "TypeScript (primary language, all packages)"
+      - "Rust (Phase 2+ core engine: Cortex, AXP, Bastion, Vault, Synapse compiled to WASM)"
+      - "wasm-bindgen (TypeScript<->Rust WASM bindings for web)"
+      - "napi-rs (TypeScript<->Rust native bindings for mobile/desktop)"
+      - "Wasmtime (embedded in Rust core — executes agent.wasm on mobile/desktop native only; web uses browser native WebAssembly API)"
+      - "Javy (TypeScript/JavaScript -> QuickJS -> .wasm compiler, used by atlax build for Phase 2+ agent compilation)"
+      - "QuickJS (JS interpreter embedded in agent.wasm by Javy)"
       - "React (web UI rendering in @atlax/neo)"
       - "React Native + Expo (mobile rendering in @atlax/neo)"
       - "Ed25519 (cryptographic identity for agents and AXP message signing)"
@@ -2324,8 +2361,8 @@ metadata:
       - "hnswlib-node (mobile semantic memory vector store)"
       - "ONNX Runtime Web/Mobile (local embedding inference for all-MiniLM-L6-v2)"
       - "all-MiniLM-L6-v2 (~25MB, 384 dimensions, local embeddings)"
-      - "Web Workers (web agent sandbox isolation)"
-      - "JSC/Hermes isolates (mobile agent sandbox isolation)"
+      - "Web Workers (Phase 0-1 web agent sandbox isolation)"
+      - "JSC/Hermes isolates (Phase 0-1 mobile agent sandbox isolation)"
       - "OpenTelemetry (observability metrics and traces)"
       - "MCP (Model Context Protocol, for external tool integration via @atlax/bridge)"
       - "Vite (web bundler)"

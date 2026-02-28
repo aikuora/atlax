@@ -1,7 +1,7 @@
-# ATLAX SDK — Technical Specification v0.1
+# ATLAX SDK — Technical Specification
 
 > **Framework for building Agent-First Operating Systems**
-> License: MIT | Primary Language: TypeScript | Platforms: Web (PWA/SPA) + Mobile (React Native/Expo)
+> License: MIT | Languages: TypeScript (surface) + Rust → WASM (core engine) | Platforms: Web (PWA/SPA) + Mobile (React Native/Expo)
 
 ---
 
@@ -78,9 +78,15 @@ Atlax handles: intent routing to the correct agent, encrypted local memory manag
 │                     INTERACTION SURFACE                          │
 │   Ambient Dashboard │ Chat/Voice │ Notifications │ Widgets       │
 ├─────────────────────────────────────────────────────────────────┤
-│                      UI RUNTIME (Neo Renderer)                   │
+│                      UI RUNTIME (Neo Renderer)        [TypeScript]│
 │   Schema Interpreter │ Component Registry │ Layout Engine        │
 ├─────────────────────────────────────────────────────────────────┤
+│                    DEVELOPER SURFACE                   [TypeScript]│
+│   @Agent / defineAgent │ Config │ AXUI helpers │ CLI            │
+├─────────────────────────────────────────────────────────────────┤
+│                    BINDINGS (wasm-bindgen / napi-rs)             │
+├─────────────────────────────────────────────────────────────────┤
+│                      CORE ENGINE                    [Rust → WASM]│
 │                      AGENT ORCHESTRATOR (Cortex)                 │
 │   Intent Router │ Agent Lifecycle │ Permission Gate │ AXP Bus    │
 ├─────────┬───────────┬──────────────┬────────────────────────────┤
@@ -91,13 +97,15 @@ Atlax handles: intent routing to the correct agent, encrypted local memory manag
 │         │  E2E Enc. │  Cost/Perf   │  External APIs             │
 │         │  Vec+KV   │  routing     │  Code exec                 │
 ├─────────┴───────────┴──────────────┴────────────────────────────┤
-│                      SECURITY LAYER (Bastion)                    │
-│   Sandbox │ Crypto Identity │ Permissions │ Audit Log            │
+│                      SECURITY LAYER (Bastion)       [Rust → WASM]│
+│   WASM Sandbox │ Crypto Identity │ Permissions │ Audit Log      │
 ├─────────────────────────────────────────────────────────────────┤
-│                      PERSISTENCE (local-first)                   │
+│                      PERSISTENCE (local-first)      [Rust → WASM]│
 │   SQLite/OPFS │ Vector Store │ Encrypted Blob Store             │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+> **Note on languages**: The developer only writes TypeScript. The core engine (Cortex, AXP, Bastion, Vault) is implemented in Rust and compiled to WASM for browser, native for mobile (via napi-rs/uniffi), and native directly for desktop (Tauri). This decision is made progressively: Phases 0-1 are 100% TypeScript with existing WASM dependencies; migration to Rust core happens in Phase 2+. See [section 14.1](#141-why-typescript-as-surface-and-rust-as-engine) for the full analysis.
 
 ### 2.2 Internal Components (Naming)
 
@@ -146,6 +154,10 @@ In Atlax, an **agent** is an autonomous entity with:
 | **Reputation** | Score based on: success rate, human interventions, errors, user feedback. |
 
 ### 3.2 Agent Anatomy (TypeScript API)
+
+> **Note**: Two equivalent approaches are offered for defining agents. The decorator approach (`@Agent`, `@Intent`) is more familiar to NestJS/Angular developers. The functional approach (`defineAgent()`) is pure TypeScript without experimental dependencies and more future-proof (see [section 14.1b](#141b-on-decorators-functional-approach-vs-reflect-metadata)). Both produce the same internal result.
+
+**Approach A: Decorators (syntax sugar)**
 
 ```typescript
 import { Agent, Intent, Hook, Tool, Guard, AgentContext } from '@atlax/core';
@@ -252,6 +264,76 @@ class CalendarAgent {
     return { available: busy.length === 0, slots: this.getAlternatives(busy) };
   }
 }
+```
+
+**Approach B: Functional (recommended, future-proof)**
+
+```typescript
+import { defineAgent } from '@atlax/core';
+import { z } from 'zod';
+
+export default defineAgent({
+  name: 'calendar',
+  version: '1.0.0',
+  description: 'Manages user events, reminders, and availability',
+  permissions: [
+    'memory.read:calendar.*',
+    'memory.write:calendar.*',
+    'memory.read:contacts.names',
+    'tools.google_calendar',
+    'ui.render',
+    'notify.push',
+  ],
+  triggers: {
+    schedule: '0 8 * * *',
+    events: ['morning_briefing'],
+  },
+
+  intents: {
+    createEvent: {
+      patterns: ['schedule meeting', 'create event', 'set appointment'],
+      params: z.object({
+        title: z.string(),
+        date: z.string().datetime(),
+        participants: z.array(z.string()).optional(),
+      }),
+      handler: async (ctx, params) => {
+        const conflicts = await ctx.memory.query('calendar.events', {
+          date: params.date, overlap: true,
+        });
+
+        if (conflicts.length > 0) {
+          return ctx.ui.confirm({
+            schema: 'ConflictResolution',
+            data: { conflicts, proposed: params },
+          });
+        }
+
+        const result = await ctx.tools.invoke('google_calendar', 'createEvent', params);
+        await ctx.memory.store('calendar.events', { ...params, externalId: result.id });
+        return ctx.ui.render('EventCreated', { event: params, link: result.htmlLink });
+      },
+    },
+
+    checkAvailability: {
+      patterns: ['do I have time for...', 'am I free...'],
+      params: z.object({ datetime: z.string() }),
+      handler: async (ctx, params) => {
+        const busy = await ctx.memory.query('calendar.events', { date: params.datetime });
+        return { available: busy.length === 0 };
+      },
+    },
+  },
+
+  hooks: {
+    morning_briefing: async (ctx) => {
+      const events = await ctx.memory.query('calendar.events', {
+        date: { $gte: today(), $lt: tomorrow() },
+      });
+      return ctx.ui.render('DailyAgenda', { events });
+    },
+  },
+});
 ```
 
 ### 3.3 Multi-Agent Topology
@@ -1682,83 +1764,190 @@ Atlax includes a **development dashboard** (only in `atlax dev`) that shows in r
 
 ## 13. Implementation Roadmap
 
-### Phase 0: Foundations (Weeks 1–6)
+### Note on Time Estimates
+
+This roadmap assumes that 100% of development is assisted by **Claude Code**, which reduces implementation times by approximately **80%** compared to traditional manual development. Estimates reflect this acceleration.
+
+| | Manual (traditional) | With Claude Code | Reduction |
+|---|---|---|---|
+| **Phase 0: First Agent** | Week 6 | Day 5 (~1 week) | ~83% |
+| **Phase 1: Complete Core** | Week 14 | Day 12 (~2.5 weeks) | ~82% |
+| **Phase 2: Complete Experience** | Week 22 | Day 18 (~3.5 weeks) | ~84% |
+| **Phase 3: Ecosystem** | Week 30 | Day 25 (~5 weeks) | ~83% |
+| **Total to production** | ~7 months | **~5–6 weeks** | **~80%** |
+
+### Visual Timeline
+
+```
+Day     1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
+        ├──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┼──┤
+Week    │    W1        │     W2       │     W3       │     W4       │     W5       │
+────────────────────────────────────────────────────────────────────────────────────
+Core    ████
+Bastion  ████████
+Vault    ████████████
+AXUI      ████████
+Synapse       ████████
+Cortex            ██████████
+AXP                ████████
+Neo                   ████████████████
+Bridge                ██████████
+CLI      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ (continuous)
+Zion                                       ████████████████
+```
+
+### Phase 0: Foundations (Days 1–5)
+
+| Deliverable | Description | Days | Priority |
+|-------------|-------------|------|----------|
+| `@atlax/core` | TypeScript types, `defineAgent()`, `defineConfig`, plugin registry | 1–2 | P0 |
+| `@atlax/bastion` | Ed25519 identity, permissions, Web Worker sandbox, audit log | 2–5 | P0 |
+| `@atlax/vault` | AES-256-GCM encryption, 4 memory tiers, unified API | 2–5 | P0 |
+| AXUI Schema v0.1 | JSON Schema spec + validator + expression evaluator | 3–5 | P0 |
+| CLI: `create-atlax` | Interactive project scaffolding | 2–3 | P0 |
+
+**Milestone M0 (Day 5)**: An agent can receive an intent, query encrypted memory, and return an AXUI schema.
+
+### Phase 1: Complete Core (Days 6–14)
+
+| Deliverable | Description | Days | Priority |
+|-------------|-------------|------|----------|
+| `@atlax/synapse` | Multi-provider, complexity classifier, router, budget | 4–7 | P0 |
+| `@atlax/cortex` | Agent registry, lifecycle FSM, intent router, execution pipeline | 6–10 | P0 |
+| `@atlax/neo` | AXUI → React renderer, theme system, action handling, dashboard | 7–14 | P0 |
+| AXP v0.1 | In-memory bus, request-response, delegation, capability discovery | 8–11 | P1 |
+| `@atlax/bridge` | MCP client, tool registry, sandboxed execution, built-in tools | 7–11 | P1 |
+| CLI: `atlax dev` | Dev server with hot reload and embedded devtools | 9–10 | P1 |
+
+**Milestone M1 (Day 9)**: An AXUI schema renders as a functional React component.
+**Milestone M2 (Day 12)**: Two agents collaborate via AXP and use MCP tools.
+
+### Phase 2: Complete Experience (Days 15–18)
+
+| Deliverable | Description | Days | Priority |
+|-------------|-------------|------|----------|
+| Ambient Dashboard | Masonry layout + contextual prioritization + widgets | 10–12 | P1 |
+| Voice | Web Speech API (web) + expo-speech (mobile) | 13–14 | P1 |
+| Proactive notifications | Agents suggesting actions via triggers/schedule | 14–15 | P1 |
+| Local embeddings | ONNX Runtime Web/Mobile for all-MiniLM-L6-v2 | 12–14 | P1 |
+| `@atlax/testing` | `testAgent()`, `mockMemory()`, `mockLLM()`, assertions | 12–13 | P1 |
+| Neo React Native | Renderer port to React Native / Expo | 12–14 | P1 |
+| CLI: `atlax build` | Production build: tree-shaking, code splitting, PWA, Expo | 15–18 | P1 |
+
+**Milestone M3 (Day 15)**: Fully functional OS with ambient dashboard, multiple agents, voice, and devtools.
+**Milestone M4 (Day 18)**: Production build, testing framework, audit tools.
+
+### Phase 3: Marketplace and Ecosystem (Days 19–25)
+
+| Deliverable | Description | Days | Priority |
+|-------------|-------------|------|----------|
+| `@atlax/zion` | .axpkg format, publish flow (signing + static analysis) | 18–20 | P1 |
+| Installation and verification | Signature verification, hash check, permission approval | 20–22 | P1 |
+| Reputation system | Automatic scoring + feedback + behavioral effects | 22–24 | P2 |
+| Zion Registry server | Self-hostable REST API for the marketplace | 24–25 | P2 |
+| CLI: `atlax publish` | Publish agents to Zion | 19–20 | P1 |
+| Documentation | Guides, API reference, tutorials, examples | 20–25 | P0 |
+
+**Milestone M5 (Day 25)**: Functional Zion marketplace with publishing, installation, and reputation.
+
+### Phase 4: Advanced + Rust Migration (Weeks 6+)
 
 | Deliverable | Description | Priority |
 |-------------|-------------|----------|
-| `@atlax/core` | TypeScript types, `@Agent`, `@Intent`, `@Hook` decorators | P0 |
-| `@atlax/vault` | Encrypted local memory (SQLite/OPFS + KV + in-memory) | P0 |
-| `@atlax/bastion` | Basic permissions + Web Worker sandbox | P0 |
-| `@atlax/cortex` | Basic intent router + agent lifecycle | P0 |
-| AXUI Schema v0.1 | Schema spec + JSON Schema validator | P0 |
-| CLI: `create-atlax` | Basic project scaffolding | P0 |
-
-**Milestone**: An agent can receive an intent, query memory, and return an AXUI schema that renders.
-
-### Phase 1: Complete Core (Weeks 7–14)
-
-| Deliverable | Description | Priority |
-|-------------|-------------|----------|
-| `@atlax/synapse` | Multi-model LLM Router with complexity classification | P0 |
-| `@atlax/neo` | AXUI → React + React Native renderer | P0 |
-| `@atlax/bridge` | MCP adapter for external tools | P0 |
-| AXP v0.1 | Inter-agent protocol: request-response + pub-sub | P0 |
-| Ambient Dashboard | Layout engine + micro-app prioritization | P1 |
-| Audit Log | Append-only log with hash chaining | P1 |
-| CLI: `atlax dev` | Dev server with hot reload and devtools | P1 |
-
-**Milestone**: Multiple agents collaborate, use external tools, and the dashboard shows dynamic micro-apps.
-
-### Phase 2: Complete Experience (Weeks 15–22)
-
-| Deliverable | Description | Priority |
-|-------------|-------------|----------|
-| Voice | Voice input (Web Speech API + expo-speech) | P1 |
-| Proactive notifications | Agents that suggest actions without user asking | P1 |
-| Cryptographic identity | Ed25519 key pairs + signed manifest per agent | P1 |
-| Local embeddings | ONNX Runtime Web/Mobile for all-MiniLM-L6-v2 | P1 |
-| `@atlax/testing` | Agent testing framework | P1 |
-| Themes and customization | Theme system + semantic tokens | P2 |
-| CLI: `atlax build` | Production build (web + mobile) | P1 |
-
-**Milestone**: The OS is usable end-to-end with voice, notifications, local embeddings, and testing.
-
-### Phase 3: Marketplace and Ecosystem (Weeks 23–30)
-
-| Deliverable | Description | Priority |
-|-------------|-------------|----------|
-| `@atlax/zion` | Marketplace client: publish, install, verify | P1 |
-| Zion Registry | Registry server (self-hostable) | P1 |
-| Reputation system | Automatic scoring + user feedback | P2 |
-| E2E Sync | Optional encrypted cloud synchronization | P2 |
-| A2A Bridge | Bridge for Atlax agents to communicate with external A2A agents | P2 |
-| CLI: `atlax publish` | Publish agents to Zion | P1 |
-| Complete documentation | Guides, API reference, tutorials | P0 |
-
-**Milestone**: Functional ecosystem with marketplace, reputation, and sync.
-
-### Phase 4: Advanced (Weeks 31+)
-
-| Deliverable | Description | Priority |
-|-------------|-------------|----------|
-| Custom AXUI components | Registration and distribution of custom UI components | P2 |
-| Multi-modal input | Camera + location as contextual inputs | P2 |
-| Agent devtools | Visual inspector for agents, memory, and AXP | P2 |
-| Performance optimization | Lazy loading of agents, AXUI schema caching | P2 |
-| Desktop (Tauri) | Desktop support via Tauri | P3 |
+| Rust core — AXP bus | Migrate AXP bus to Rust→WASM (native MessagePack + Ed25519) | P1 |
+| Rust core — Bastion | Migrate crypto and sandbox to Rust→WASM (embedded Wasmtime) | P1 |
+| Rust core — Vault | Migrate SQLite + vector store + encryption to Rust→WASM | P1 |
+| E2E Sync | Encrypted synchronization with CRDTs | P2 |
+| A2A Bridge | Interoperability with external A2A agents | P2 |
+| Desktop (Tauri) | Desktop support with native Rust core | P2 |
+| Custom AXUI components | Registration and distribution of custom components | P2 |
+| Multi-modal input | Camera + location as contextual inputs | P3 |
 | Plugin system | Extensions for Cortex, Neo, Vault | P3 |
 
 ---
 
 ## 14. Technical Decisions and Trade-offs
 
-### 14.1 Why TypeScript code-first and not a DSL?
+### 14.1 Why TypeScript as surface and Rust as engine?
 
-**Decision**: Everything is defined in TypeScript with decorators and functions.
+**Decision**: TypeScript is the language the developer touches (agents, configuration, UI). Rust compiled to WASM is the internal engine powering the core (Cortex, AXP, Bastion, Vault).
 
-**Reason**: A DSL creates a barrier to entry. TypeScript is already the language of the React/RN ecosystem. Decorators provide DSL-like ergonomics without the cost of learning a new language. Additionally, the developer has access to the entire npm ecosystem.
+**Problem analysis**: The spec critically depends on components that JavaScript/TypeScript cannot execute efficiently: Ed25519 signing on every AXP message, AES-256-GCM for every Vault operation, Argon2id for key derivation, SHA-256 for audit log hash chain, high-frequency MessagePack serialization, and vector search with hnswlib. In fact, the spec already acknowledges this implicitly — the recommended implementations for these components are all WASM modules: `wa-sqlite`, `hnswlib-wasm`, `onnxruntime-web`, `argon2-browser`. TypeScript only acts as a wrapper.
 
-**Trade-off**: Fewer compile-time restrictions than a pure DSL. Mitigated with runtime validation and strong types.
+**Reason for TypeScript as surface**:
+- Neo is React/RN. There's no practical alternative — the renderer lives in the React ecosystem and TypeScript is its native language.
+- The DX for the developer writing agents must be TypeScript: it's the language of the React/RN ecosystem, has access to all of npm, and LLM provider SDKs (Vercel AI SDK, MCP SDK, OpenAI SDK) are TypeScript.
+- AXUI (JSON schema + validation), configuration (`defineConfig`, `atlax.config.ts`), and the CLI are pure TypeScript and don't need optimization.
+
+**Reason for Rust as engine**:
+- **Performance**: MessagePack serialize/deserialize in Rust is 10-50x faster than JS. Native Ed25519 vs `@noble/ed25519` (pure JS). AES-256-GCM without Web Crypto's async API.
+- **Security**: Real WASM sandbox — third-party agent code (marketplace) can run in a WASM module with linear isolated memory, with no access to host APIs except those Bastion explicitly exposes. This is significantly stronger than Web Workers. Additionally, Rust eliminates buffer overflows and use-after-free, critical vulnerabilities for a system handling encrypted user data.
+- **Portability**: The same Rust code compiles to wasm32 (browser), aarch64-apple-ios (iOS), aarch64-linux-android (Android), x86_64 (desktop/Tauri). No three different implementations of the crypto engine or vector store.
+
+**Industry precedents**: Turbopack (Rust core, JS API), SWC (Rust→WASM, consumed from Node), Tauri (Rust core, web frontend), libsql/Turso (Rust core, JS bindings), Deno (Rust core, TS/JS runtime).
+
+**Layer architecture**:
+
+```
+┌─────────────────────────────────────────────────┐
+│        DEVELOPER SURFACE (TypeScript)            │
+│  @Agent, @Intent, defineConfig, atlax.config.ts  │
+│  Neo Renderer (React/RN), AXUI helpers, CLI      │
+├─────────────────────────────────────────────────┤
+│           BINDINGS (wasm-bindgen / napi-rs)       │
+├─────────────────────────────────────────────────┤
+│            CORE ENGINE (Rust → WASM)              │
+│  Cortex (orchestrator), AXP bus (MessagePack),    │
+│  Bastion (Ed25519, sandbox), Vault (SQLite,       │
+│  encryption, vector store), Synapse (router)      │
+└─────────────────────────────────────────────────┘
+```
+
+**Phased migration strategy**:
+- **Phase 0-1 (prototype)**: All TypeScript. Use existing WASM dependencies (wa-sqlite, hnswlib-wasm, onnxruntime-web, argon2-browser). Validate the paradigm, DX, complete flow.
+- **Phase 2 (optimization)**: Profiling to identify real bottlenecks. Migrate AXP bus, crypto (Bastion), and vector search to Rust→WASM with `wasm-bindgen`, keeping the TypeScript API identical.
+- **Phase 3+ (production)**: Consolidate the core engine in Rust. The `@atlax/engine` package is a .wasm containing Cortex, AXP, Bastion, and Vault. TypeScript remains as the DX layer, Neo, CLI, and the "glue" with npm/React.
+
+**The developer API never changes**. The JS→WASM refactor is internal and transparent.
+
+**Trade-offs**:
+- Build complexity: compiling Rust→WASM, generating TS bindings, maintaining feature parity. Mitigated with the phased strategy (Rust is not introduced until necessary).
+- The team needs Rust knowledge to contribute to the core. Mitigated because the end developer only touches TypeScript.
+- Cross-boundary debugging (TS→WASM→Rust) is harder. Mitigated with WASM source maps and good observability.
+
+### 14.1b On decorators: functional approach vs `reflect-metadata`
+
+**Decision**: Prefer a functional approach with `defineAgent()` over decorators with `reflect-metadata`.
+
+**Reason**: The "legacy" decorators used by `reflect-metadata` are different from the TC39 Stage 3 decorators that TypeScript 5+ implements. The `reflect-metadata` API is non-standard, has no formal spec, and its future is uncertain. Building the core API on that foundation is a technical risk.
+
+**Recommended approach**:
+
+```typescript
+// Instead of decorators (experimental dependency):
+@Agent({ name: 'finance', permissions: ['memory.read'] })
+class FinanceAgent {
+  @Intent({ patterns: ['track expense'] })
+  async trackExpense(ctx, params) { /* ... */ }
+}
+
+// Functional approach (pure TypeScript, future-proof):
+export default defineAgent({
+  name: 'finance',
+  permissions: ['memory.read', 'memory.write'],
+  intents: {
+    trackExpense: {
+      patterns: ['track expense', 'log spending'],
+      params: z.object({ amount: z.number(), category: z.string() }),
+      handler: async (ctx, params) => { /* ... */ }
+    }
+  }
+});
+```
+
+The functional approach is pure TypeScript without experimental dependencies, with full type inference via Zod, and works identically today and 5 years from now.
+
+**Trade-off**: Decorator syntax is visually cleaner and more familiar to NestJS/Angular developers. Mitigated by offering both approaches — decorators as syntax sugar over `defineAgent()`.
 
 ### 14.2 Why declarative AXUI and not open-ended generative UI?
 
@@ -1796,16 +1985,26 @@ Atlax includes a **development dashboard** (only in `atlax dev`) that shows in r
 
 **Trade-off**: Sync between devices is more complex. Mitigated with CRDTs (Conflict-free Replicated Data Types) for E2E sync.
 
-### 14.5 Why Web Workers for sandboxing and not WASM?
+### 14.5 Why Web Workers for prototype and WASM sandbox for production?
 
-**Decision**: Web Workers as the sandbox mechanism on web. WASM as a future option.
+**Decision**: Web Workers as sandbox mechanism in prototype (Phases 0-1). Migration to WASM sandbox with embedded Wasmtime/Wasmer in production (Phase 2+).
 
-**Reason**:
-- Web Workers provide real memory and execution context isolation.
-- Available in all modern browsers. WASM sandbox (e.g., Wasmer) is not yet mature enough on web.
-- Allows running agent TypeScript code without additional compilation.
+**Reason for Web Workers in prototype**:
+- Provide thread isolation and are sufficient for validating the paradigm.
+- Available in all modern browsers. Zero setup.
+- Allow running agent TypeScript without additional compilation.
 
-**Trade-off**: Workers have communication overhead via `postMessage` (serialization). Mitigated with `SharedArrayBuffer` + `Atomics` where available, and transferables for large data.
+**Reason for WASM sandbox in production**:
+- Web Workers are not a real security sandbox: a malicious agent in a Worker can still call `fetch()` (unless intercepted), consume CPU infinitely, and exploit side-channels.
+- A WASM sandbox (Wasmtime embedded in the Rust core) offers real instruction-level memory isolation, with granular control over: instructions per second (CPU limit), maximum memory (OOM prevention), and zero host access except functions explicitly exposed by Bastion.
+- This is especially critical for marketplace agents (Zion): third-party code the user installs must run in the most restrictive sandbox possible.
+
+**Migration strategy**:
+- Phase 0-1: Web Workers with API proxy controlled by Bastion.
+- Phase 2: Rust core with embedded Wasmtime. Third-party agents compile to WASM and run in the sandbox. Developer's local agents can continue in Workers for rapid development.
+- Phase 3+: Optionally, all agents run in WASM sandbox for maximum security.
+
+**Trade-off**: Workers have communication overhead via `postMessage` (serialization). WASM sandbox requires compiling agents to WASM, adding a step to the development flow. Mitigated with `SharedArrayBuffer` + `Atomics` for Workers, and automatic compilation via `atlax build` for WASM.
 
 ---
 

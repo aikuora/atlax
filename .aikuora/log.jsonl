@@ -135,3 +135,5 @@
 {"ts": "2026-03-01T22:02:21Z", "event": "file_modified", "tool": "Write", "file": "prettier.config.mjs", "agent": "engineer"}
 {"ts": "2026-03-01T22:02:25Z", "event": "file_modified", "tool": "Edit", "file": "package.json", "agent": "engineer"}
 {"ts": "2026-03-01T22:02:28Z", "event": "session_stop", "summary": "Done:\n\n- `.prettierrc` removed\n- `prettier.config.mjs` created with your config\n- `@ianvs/prettier-plugin-sort-imports` added to root `devDependencies`\n\nRun `pnpm install -w` to install the new plugin"}
+{"ts": "2026-03-01T22:17:01Z", "event": "file_modified", "tool": "Write", "file": ".github/workflows/ci.yml", "agent": "engineer"}
+{"ts": "2026-03-01T22:17:04Z", "event": "session_stop", "summary": "Done. Replaced the manual `curl | bash` + `proto use` steps with `moonrepo/setup-toolchain@v0` which handles proto install, moon install, and toolchain caching automatically. The pnpm store cache is k"}

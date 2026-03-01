@@ -1,0 +1,21 @@
+{
+  "name": "atlax",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "atlax": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/cli.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "moon run cli:build",
+    "test": "moon run cli:test",
+    "lint": "moon run cli:lint",
+    "format": "moon run cli:format",
+    "typecheck": "moon run cli:typecheck"
+  }
+}

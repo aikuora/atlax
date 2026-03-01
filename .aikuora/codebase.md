@@ -167,8 +167,26 @@ atlax/
 
 ## Active Context
 
-**Current task:** (none — Phase 0 setup not yet started)
+**Current task:** Phase 0 complete — ready for Phase 1
 
-**Relevant files:** (none)
+**Relevant files:**
 
-**Recent discoveries:** (none)
+- `.moon/workspace.yml` — moonrepo workspace, discovers `packages/*` and `crates/*`
+- `.moon/toolchain.yml` — node 24.14.0 + pnpm 10.30.3
+- `.prototools` — pinned node 24.14.0, pnpm 10.30.3, moon 2.0.3, rust stable
+- `pnpm-workspace.yaml` — pnpm workspace root
+- `packages/*/moon.yml` — per-package moon tasks (build/test/lint/format/typecheck)
+- `tsconfig.base.json` — shared strict TypeScript config (ES2022, NodeNext)
+- `eslint.config.ts` — ESLint v9 flat config with @typescript-eslint
+- `vitest.workspace.ts` — root vitest workspace discovering all package configs
+- `lefthook.yml` — pre-commit lint+format:check, commit-msg commitlint
+- `.github/workflows/ci.yml` — CI on push/PR to main
+- `Cargo.toml` — Rust workspace with crates/atlax-core member
+
+**Recent discoveries:**
+
+- moon 2.0.3 is latest; pinned with `proto pin moon latest --resolve`
+- pnpm-workspace.yaml v9 format does not use `npmrc` settings at all — all workspace config stays in the yaml file
+- `packages/neo` vitest uses `happy-dom`; all others use `node` environment
+- Rust crate skeleton uses `crate-type = ["cdylib", "rlib"]` for future WASM compilation
+- `format:check` added as a separate moon task alongside `format` to support the lefthook pre-commit hook

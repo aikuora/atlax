@@ -1,0 +1,36 @@
+# moonrepo workspace configuration
+# https://moonrepo.dev/docs/config/workspace
+
+$schema: "https://moonrepo.dev/schemas/workspace.json"
+
+# Discover all packages under packages/* and crates/*
+projects:
+  - "packages/*"
+  - "crates/*"
+
+# Root-level tasks that fan out to all projects
+tasks:
+  build:
+    command: "moon"
+    args: ["run", ":build"]
+    local: true
+
+  test:
+    command: "moon"
+    args: ["run", ":test"]
+    local: true
+
+  lint:
+    command: "moon"
+    args: ["run", ":lint"]
+    local: true
+
+  format:
+    command: "moon"
+    args: ["run", ":format"]
+    local: true
+
+  typecheck:
+    command: "moon"
+    args: ["run", ":typecheck"]
+    local: true

@@ -1,7 +1,7 @@
 # Implementation Plan
 project: "atlax"
 spec: ".aikuora/spec.yaml"
-current_phase: 0
+current_phase: 1
 
 # Spec coverage check (all 25 behaviors mapped):
 #   behaviors.user_authentication          -> P1-02
@@ -33,7 +33,7 @@ current_phase: 0
 phases:
   - id: 0
     name: "Repository Scaffold and Tooling"
-    status: pending
+    status: done
     tasks:
       - id: P0-01
         title: "Initialize moonrepo workspace"
@@ -44,7 +44,7 @@ phases:
           fan out to all packages. Verify moon version via proto.
         spec_ref: null
         packages: [".moon/"]
-        status: pending
+        status: done
 
       - id: P0-02
         title: "Pin toolchain versions with prototools"
@@ -56,7 +56,7 @@ phases:
           .prototools.
         spec_ref: null
         packages: [".prototools"]
-        status: pending
+        status: done
 
       - id: P0-03
         title: "Configure pnpm workspace"
@@ -68,7 +68,7 @@ phases:
           engines field pinning the Node.js version from .prototools.
         spec_ref: null
         packages: ["pnpm-workspace.yaml"]
-        status: pending
+        status: done
 
       - id: P0-04
         title: "Scaffold all TypeScript package skeletons"
@@ -90,7 +90,7 @@ phases:
           - "packages/bridge"
           - "packages/testing"
           - "packages/cli"
-        status: pending
+        status: done
 
       - id: P0-05
         title: "Configure shared TypeScript toolchain"
@@ -103,7 +103,7 @@ phases:
           devDependency. Verify tsc --noEmit passes on all empty packages.
         spec_ref: null
         packages: ["packages/*"]
-        status: pending
+        status: done
 
       - id: P0-06
         title: "Configure ESLint and Prettier"
@@ -118,7 +118,7 @@ phases:
           errors on the empty package stubs.
         spec_ref: null
         packages: ["eslint.config.ts", ".prettierrc"]
-        status: pending
+        status: done
 
       - id: P0-07
         title: "Configure Vitest workspace"
@@ -131,7 +131,7 @@ phases:
           vitest run.
         spec_ref: null
         packages: ["vitest.workspace.ts", "packages/*/vitest.config.ts"]
-        status: pending
+        status: done
 
       - id: P0-08
         title: "Configure lefthook and commitlint"
@@ -144,7 +144,7 @@ phases:
           hooks are installed and block a malformed commit message.
         spec_ref: null
         packages: ["lefthook.yml", "commitlint.config.ts"]
-        status: pending
+        status: done
 
       - id: P0-09
         title: "Configure release-please"
@@ -158,7 +158,7 @@ phases:
           package.
         spec_ref: null
         packages: ["release-please-config.json", ".release-please-manifest.json"]
-        status: pending
+        status: done
 
       - id: P0-10
         title: "Configure GitHub Actions CI"
@@ -170,7 +170,7 @@ phases:
           (all tasks succeed on empty stubs).
         spec_ref: null
         packages: [".github/workflows/ci.yml"]
-        status: pending
+        status: done
 
       - id: P0-11
         title: "Scaffold Rust crate skeleton (Phase 2 placeholder)"
@@ -184,7 +184,7 @@ phases:
           no implementation.
         spec_ref: null
         packages: ["crates/atlax-core"]
-        status: pending
+        status: done
 
   - id: 1
     name: "Core TypeScript Implementation"

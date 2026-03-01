@@ -1,0 +1,19 @@
+{
+  "name": "@atlax/testing",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "moon run testing:build",
+    "test": "moon run testing:test",
+    "lint": "moon run testing:lint",
+    "format": "moon run testing:format",
+    "typecheck": "moon run testing:typecheck"
+  }
+}

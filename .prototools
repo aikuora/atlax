@@ -1,0 +1,12 @@
+# Bootstrap: install proto then run `proto use` to activate all pinned tools.
+# proto install: https://moonrepo.dev/docs/proto/install
+#   curl -fsSL https://moonrepo.dev/install/proto.sh | bash
+# Then from repo root:
+#   proto use          # installs node, pnpm, moon, rust at pinned versions
+#   pnpm install       # install JS dependencies
+#   moon run :build    # verify workspace
+
+node = "24.14.0"
+pnpm = "10.30.3"
+moon = "2.0.3"
+rust = "stable"

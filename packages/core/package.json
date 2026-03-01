@@ -1,0 +1,19 @@
+{
+  "name": "@atlax/core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "moon run core:build",
+    "test": "moon run core:test",
+    "lint": "moon run core:lint",
+    "format": "moon run core:format",
+    "typecheck": "moon run core:typecheck"
+  }
+}

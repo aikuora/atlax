@@ -1,0 +1,11 @@
+[package]
+name = "atlax-core"
+version = "0.1.0"
+edition = "2021"
+description = "Atlax core Rust crate — agent runtime, AXP bus, and cryptographic vault"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]

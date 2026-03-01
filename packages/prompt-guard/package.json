@@ -1,0 +1,19 @@
+{
+  "name": "@atlax/prompt-guard",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "moon run prompt-guard:build",
+    "test": "moon run prompt-guard:test",
+    "lint": "moon run prompt-guard:lint",
+    "format": "moon run prompt-guard:format",
+    "typecheck": "moon run prompt-guard:typecheck"
+  }
+}

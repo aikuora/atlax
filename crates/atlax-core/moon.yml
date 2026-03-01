@@ -1,0 +1,12 @@
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+language: "rust"
+type: "library"
+
+tasks:
+  build:
+    command: "cargo"
+    args: ["build"]
+    inputs:
+      - "src/**/*"
+      - "Cargo.toml"

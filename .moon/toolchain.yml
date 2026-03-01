@@ -1,0 +1,11 @@
+# moonrepo toolchain configuration
+# https://moonrepo.dev/docs/config/toolchain
+
+$schema: "https://moonrepo.dev/schemas/toolchain.json"
+
+node:
+  version: "24.14.0"
+  packageManager: "pnpm"
+
+pnpm:
+  version: "10.30.3"

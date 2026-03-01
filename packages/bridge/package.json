@@ -1,0 +1,19 @@
+{
+  "name": "@atlax/bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "moon run bridge:build",
+    "test": "moon run bridge:test",
+    "lint": "moon run bridge:lint",
+    "format": "moon run bridge:format",
+    "typecheck": "moon run bridge:typecheck"
+  }
+}

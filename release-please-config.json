@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "packages": {
+    "packages/core": {
+      "release-type": "node",
+      "package-name": "@atlax/core"
+    },
+    "packages/neo": {
+      "release-type": "node",
+      "package-name": "@atlax/neo"
+    },
+    "packages/prompt-guard": {
+      "release-type": "node",
+      "package-name": "@atlax/prompt-guard"
+    },
+    "packages/dashboard": {
+      "release-type": "node",
+      "package-name": "@atlax/dashboard"
+    },
+    "packages/bridge": {
+      "release-type": "node",
+      "package-name": "@atlax/bridge"
+    },
+    "packages/testing": {
+      "release-type": "node",
+      "package-name": "@atlax/testing"
+    },
+    "packages/cli": {
+      "release-type": "node",
+      "package-name": "atlax"
+    }
+  }
+}

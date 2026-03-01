@@ -1,0 +1,11 @@
+pre-commit:
+  commands:
+    lint:
+      run: moon run :lint
+    format-check:
+      run: moon run :format:check
+
+commit-msg:
+  commands:
+    commitlint:
+      run: commitlint --edit {1}

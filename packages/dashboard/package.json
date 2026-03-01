@@ -1,0 +1,19 @@
+{
+  "name": "@atlax/dashboard",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "moon run dashboard:build",
+    "test": "moon run dashboard:test",
+    "lint": "moon run dashboard:lint",
+    "format": "moon run dashboard:format",
+    "typecheck": "moon run dashboard:typecheck"
+  }
+}

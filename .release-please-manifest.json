@@ -1,0 +1,9 @@
+{
+  "packages/core": "0.1.0",
+  "packages/neo": "0.1.0",
+  "packages/prompt-guard": "0.1.0",
+  "packages/dashboard": "0.1.0",
+  "packages/bridge": "0.1.0",
+  "packages/testing": "0.1.0",
+  "packages/cli": "0.1.0"
+}

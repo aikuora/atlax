@@ -1,0 +1,27 @@
+{
+  "name": "@atlax/neo",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./web": {
+      "import": "./dist/web/index.js",
+      "types": "./dist/web/index.d.ts"
+    },
+    "./native": {
+      "import": "./dist/native/index.js",
+      "types": "./dist/native/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "moon run neo:build",
+    "test": "moon run neo:test",
+    "lint": "moon run neo:lint",
+    "format": "moon run neo:format",
+    "typecheck": "moon run neo:typecheck"
+  }
+}

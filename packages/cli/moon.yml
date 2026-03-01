@@ -1,0 +1,46 @@
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+language: "typescript"
+type: "application"
+
+tasks:
+  build:
+    command: "tsc"
+    args: ["--project", "tsconfig.json"]
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+    outputs:
+      - "dist"
+
+  test:
+    command: "vitest"
+    args: ["run"]
+    inputs:
+      - "src/**/*"
+      - "vitest.config.ts"
+
+  lint:
+    command: "eslint"
+    args: ["src"]
+    inputs:
+      - "src/**/*"
+
+  format:
+    command: "prettier"
+    args: ["--write", "src"]
+    inputs:
+      - "src/**/*"
+
+  format:check:
+    command: "prettier"
+    args: ["--check", "src"]
+    inputs:
+      - "src/**/*"
+
+  typecheck:
+    command: "tsc"
+    args: ["--project", "tsconfig.json", "--noEmit"]
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
